@@ -6,26 +6,48 @@ import { useState, useEffect } from "react";
 // Import Thomas the Tank Engine characters from JSON file
 import thomasCharacters from './thomas_characters.json';
 
+// Define interfaces for TypeScript
+interface Train {
+  id: number;
+  name: string;
+  number: string;
+  color: string;
+  description?: string;
+  images: string[];
+}
+
+interface IndexedObject {
+  [key: number]: number;
+}
+
+interface ImageCollection {
+  [key: number]: string[];
+}
+
+interface LoadingState {
+  [key: number]: boolean;
+}
+
 // Thomas the Tank Engine trains database
-const trainsDatabase = thomasCharacters;
+const trainsDatabase: Train[] = thomasCharacters;
 
 // Google Search API configuration
-const GOOGLE_API_KEY = "AIzaSyCakP1l68agUouOGWHAJK_qgeHihEnXeS8";
-const GOOGLE_CX = "473199d907acf455b";
-const GOOGLE_SEARCH_API_URL = "https://www.googleapis.com/customsearch/v1";
+const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || "";
+const GOOGLE_CX = process.env.NEXT_PUBLIC_GOOGLE_CX || "";
+const GOOGLE_SEARCH_API_URL = process.env.NEXT_PUBLIC_GOOGLE_SEARCH_API_URL || "https://www.googleapis.com/customsearch/v1";
 
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [filteredTrains, setFilteredTrains] = useState(trainsDatabase);
-  const [currentImageIndex, setCurrentImageIndex] = useState({});
-  const [additionalImages, setAdditionalImages] = useState({});
-  const [isLoadingImages, setIsLoadingImages] = useState({});
-  const [currentPage, setCurrentPage] = useState({});
+  const [filteredTrains, setFilteredTrains] = useState<Train[]>(trainsDatabase);
+  const [currentImageIndex, setCurrentImageIndex] = useState<IndexedObject>({});
+  const [additionalImages, setAdditionalImages] = useState<ImageCollection>({});
+  const [isLoadingImages, setIsLoadingImages] = useState<LoadingState>({});
+  const [currentPage, setCurrentPage] = useState<IndexedObject>({});
 
   // Initialize current image index for each train
   useEffect(() => {
-    const initialImageIndices = {};
-    const initialPages = {};
+    const initialImageIndices: IndexedObject = {};
+    const initialPages: IndexedObject = {};
     trainsDatabase.forEach(train => {
       initialImageIndices[train.id] = 0;
       initialPages[train.id] = 1;
@@ -56,15 +78,15 @@ export default function Home() {
   }, [searchTerm]);
 
   // Get all images for a train (original + additional)
-  const getAllImages = (trainId) => {
+  const getAllImages = (trainId: number): string[] => {
     const train = trainsDatabase.find(t => t.id === trainId);
-    const originalImages = train.images || [];
+    const originalImages = train ? train.images || [] : [];
     const googleImages = additionalImages[trainId] || [];
     return [...originalImages, ...googleImages];
   };
 
   // Handle image navigation
-  const nextImage = (trainId) => {
+  const nextImage = (trainId: number): void => {
     setCurrentImageIndex(prev => {
       const allImages = getAllImages(trainId);
       const nextIndex = (prev[trainId] + 1) % allImages.length;
@@ -72,7 +94,7 @@ export default function Home() {
     });
   };
 
-  const prevImage = (trainId) => {
+  const prevImage = (trainId: number): void => {
     setCurrentImageIndex(prev => {
       const allImages = getAllImages(trainId);
       const prevIndex = (prev[trainId] - 1 + allImages.length) % allImages.length;
@@ -81,7 +103,7 @@ export default function Home() {
   };
 
   // Fetch additional images from Google Search API
-  const fetchGoogleImages = async (trainId, trainName, isLoadMore = false) => {
+  const fetchGoogleImages = async (trainId: number, trainName: string, isLoadMore: boolean = false): Promise<void> => {
     try {
       setIsLoadingImages(prev => ({ ...prev, [trainId]: true }));
       
@@ -102,8 +124,8 @@ export default function Home() {
       
       if (data.items && data.items.length > 0) {
         // Filter out images from static.wikia.nocookie.net
-        const allImages = data.items.map(item => item.link);
-        const filteredImages = allImages.filter(link => !link.includes('static.wikia.nocookie.net'));
+        const allImages = data.items.map((item: { link: string }) => item.link);
+        const filteredImages = allImages.filter((link: string) => !link.includes('static.wikia.nocookie.net'));
         
         // Log for debugging
         console.log(`Filtered out ${allImages.length - filteredImages.length} wikia images`);
@@ -157,9 +179,10 @@ export default function Home() {
           alert('No more images available');
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching images from Google:', error);
-      alert(`Failed to load additional images: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      alert(`Failed to load additional images: ${errorMessage}`);
     } finally {
       setIsLoadingImages(prev => ({ ...prev, [trainId]: false }));
     }

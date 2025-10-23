@@ -2,7 +2,15 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+Create a `.env` file in the root directory with the following variables:
+
+```
+NEXT_PUBLIC_GOOGLE_API_KEY=your_google_api_key
+NEXT_PUBLIC_GOOGLE_CX=your_google_custom_search_engine_id
+NEXT_PUBLIC_GOOGLE_SEARCH_API_URL=https://www.googleapis.com/customsearch/v1
+```
+
+Then, run the development server:
 
 ```bash
 npm run dev
