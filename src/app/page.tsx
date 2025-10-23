@@ -16,6 +16,20 @@ interface Train {
   images: string[];
 }
 
+interface AISuggestedTrain {
+  id: number;
+  name: string;
+  franchise: string;
+  searchTerms: string;
+  images: string[];
+}
+
+interface TrainCandidate {
+  name: string;
+  franchise: string;
+  searchTerms: string;
+}
+
 interface IndexedObject {
   [key: number]: number;
 }
@@ -45,6 +59,8 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState<IndexedObject>({});
   const [aiGuessResult, setAiGuessResult] = useState("");
   const [isLoadingAiGuess, setIsLoadingAiGuess] = useState(false);
+  const [aiSuggestedTrains, setAiSuggestedTrains] = useState<AISuggestedTrain[]>([]);
+  const [isLoadingAiImages, setIsLoadingAiImages] = useState<LoadingState>({});
 
   // Initialize current image index for each train
   useEffect(() => {
@@ -81,6 +97,13 @@ export default function Home() {
 
   // Get all images for a train (original + additional)
   const getAllImages = (trainId: number): string[] => {
+    // Check if it's an AI-suggested train (ID >= 1000)
+    if (trainId >= 1000) {
+      const aiTrain = aiSuggestedTrains.find(t => t.id === trainId);
+      return aiTrain ? aiTrain.images : [];
+    }
+    
+    // Regular train from database
     const train = trainsDatabase.find(t => t.id === trainId);
     const originalImages = train ? train.images || [] : [];
     const googleImages = additionalImages[trainId] || [];
@@ -189,6 +212,64 @@ export default function Home() {
       setIsLoadingImages(prev => ({ ...prev, [trainId]: false }));
     }
   };
+  
+  // Fetch images for AI-suggested trains
+  const fetchImagesForAISuggestedTrain = async (trainId: number, searchTerms: string): Promise<void> => {
+    try {
+      setIsLoadingAiImages(prev => ({ ...prev, [trainId]: true }));
+      
+      const query = encodeURIComponent(searchTerms);
+      const url = `${GOOGLE_SEARCH_API_URL}?key=${GOOGLE_API_KEY}&cx=${GOOGLE_CX}&q=${query}&searchType=image&num=5`;
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.items && data.items.length > 0) {
+        // Extract image links
+        const allImages = data.items.map((item: { link: string }) => item.link);
+        
+        // Filter out images from static.wikia.nocookie.net
+        const filteredImages = allImages.filter((link: string) => !link.includes('static.wikia.nocookie.net'));
+        
+        // Log for debugging
+        console.log(`Filtered out ${allImages.length - filteredImages.length} wikia images for AI-suggested train`);
+        
+        // Check if we have any images left after filtering
+        if (filteredImages.length === 0) {
+          console.log(`All images were filtered out for AI-suggested train with ID ${trainId}`);
+          return;
+        }
+        
+        // Update the AI suggested train with filtered images
+        setAiSuggestedTrains(prev => 
+          prev.map(train => 
+            train.id === trainId 
+              ? { ...train, images: filteredImages } 
+              : train
+          )
+        );
+        
+        // Initialize the current image index for this train
+        setCurrentImageIndex(prev => ({
+          ...prev,
+          [trainId]: 0
+        }));
+      } else {
+        console.log(`No images found for AI-suggested train with ID ${trainId}`);
+      }
+    } catch (error: unknown) {
+      console.error('Error fetching images for AI-suggested train:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error(`Failed to load images for AI-suggested train: ${errorMessage}`);
+    } finally {
+      setIsLoadingAiImages(prev => ({ ...prev, [trainId]: false }));
+    }
+  };
 
   // Use AI to guess which train this could be
   const guessTrainWithAI = async (): Promise<void> => {
@@ -200,6 +281,8 @@ export default function Home() {
     try {
       setIsLoadingAiGuess(true);
       setAiGuessResult('');
+      // Clear previous AI suggestions
+      setAiSuggestedTrains([]);
 
       const response = await fetch('/api/guess-train', {
         method: 'POST',
@@ -214,7 +297,34 @@ export default function Home() {
       }
 
       const data = await response.json();
-      setAiGuessResult(data.result);
+      
+      if (Array.isArray(data.result) && data.result.length > 0) {
+        // Process structured response
+        const suggestedTrains: AISuggestedTrain[] = data.result.map((train: TrainCandidate, index: number) => ({
+          id: 1000 + index, // Use IDs starting from 1000 to avoid conflicts with existing trains
+          name: train.name,
+          franchise: train.franchise || 'Unknown',
+          searchTerms: train.searchTerms,
+          images: [] // Will be populated by fetchImagesForAISuggestedTrain
+        }));
+        
+        setAiSuggestedTrains(suggestedTrains);
+        
+        // Create a summary for display
+        const summary = suggestedTrains.map(train => 
+          `${train.name} (${train.franchise})`
+        ).join(', ');
+        
+        setAiGuessResult(`Found ${suggestedTrains.length} possible matches: ${summary}`);
+        
+        // Fetch images for each suggested train
+        suggestedTrains.forEach(train => {
+          fetchImagesForAISuggestedTrain(train.id, train.searchTerms);
+        });
+      } else {
+        // Handle empty or invalid response
+        setAiGuessResult('No matching trains found. Try a different search term.');
+      }
     } catch (error: unknown) {
       console.error('Error calling AI guess API:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -248,10 +358,16 @@ export default function Home() {
               {isLoadingAiGuess ? 'Thinking...' : 'Use AI to guess which train this could be'}
             </button>
           </div>
-          {aiGuessResult && (
+          {aiGuessResult && !aiSuggestedTrains.length && (
             <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
               <h3 className="font-bold text-blue-800 mb-2">AI Suggestion:</h3>
               <p className="text-gray-800">{aiGuessResult}</p>
+            </div>
+          )}
+          {isLoadingAiGuess && (
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-bold text-blue-800 mb-2">AI is thinking...</h3>
+              <p className="text-gray-800">Searching for trains and gathering images...</p>
             </div>
           )}
         </div>
@@ -360,6 +476,102 @@ export default function Home() {
         {filteredTrains.length === 0 && (
           <div className="text-center py-8">
             <p className="text-xl text-gray-600">No trains found matching your search.</p>
+          </div>
+        )}
+        
+        {/* AI Suggested Trains Section */}
+        {aiSuggestedTrains.length > 0 && (
+          <div className="mt-12 bg-blue-50 p-6 rounded-lg">
+            <h2 className="text-2xl font-bold text-center mb-2 text-blue-700">AI Suggested Trains</h2>
+            <p className="text-center text-gray-600 mb-8">These trains were suggested by AI based on your search term</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {aiSuggestedTrains.map((train) => (
+                <div key={train.id} className="bg-white rounded-lg shadow-md overflow-hidden border-2 border-blue-300">
+                  {/* AI Badge */}
+                  <div className="absolute top-2 right-2 z-10 bg-blue-600 text-white px-2 py-1 rounded-md text-xs font-bold">
+                    AI Suggestion
+                  </div>
+                  {/* Train image carousel */}
+                  <div className="relative h-64 bg-gray-200">
+                    {train.images.length > 0 ? (
+                      train.images.map((image, index) => (
+                        <div 
+                          key={index}
+                          className={`absolute inset-0 transition-opacity duration-300 ${
+                            currentImageIndex[train.id] === index ? 'opacity-100' : 'opacity-0'
+                          }`}
+                        >
+                          <div className="relative w-full h-full">
+                            <img
+                              src={image}
+                              alt={`${train.name} - Image ${index + 1}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                // Handle broken image links
+                                e.currentTarget.src = "/placeholder.png";
+                                e.currentTarget.onerror = null;
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        {isLoadingAiImages[train.id] ? (
+                          <p className="text-gray-500">Loading images...</p>
+                        ) : (
+                          <p className="text-gray-500">No images available</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Carousel navigation */}
+                    {train.images.length > 1 && (
+                      <div className="absolute inset-0 flex items-center justify-between p-2">
+                        <button 
+                          onClick={() => prevImage(train.id)}
+                          className="bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-70"
+                        >
+                          ←
+                        </button>
+                        <button 
+                          onClick={() => nextImage(train.id)}
+                          className="bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-70"
+                        >
+                          →
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* Image counter */}
+                    {train.images.length > 0 && (
+                      <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded-md text-sm">
+                        {currentImageIndex[train.id] + 1} / {train.images.length}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Train info */}
+                  <div className="p-4">
+                    <h2 className="text-xl font-bold text-blue-600">{train.name}</h2>
+                    <p className="text-gray-600">Franchise: {train.franchise}</p>
+                    <p className="text-gray-600 text-sm mt-2">Search Terms: {train.searchTerms}</p>
+                    
+                    {/* Save Image Link */}
+                    {train.images.length > 0 && (
+                      <a
+                        href={train.images[currentImageIndex[train.id]]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-4 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors flex justify-center items-center"
+                      >
+                        Save Image
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </main>
