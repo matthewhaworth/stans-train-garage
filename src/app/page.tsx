@@ -43,6 +43,8 @@ export default function Home() {
   const [additionalImages, setAdditionalImages] = useState<ImageCollection>({});
   const [isLoadingImages, setIsLoadingImages] = useState<LoadingState>({});
   const [currentPage, setCurrentPage] = useState<IndexedObject>({});
+  const [aiGuessResult, setAiGuessResult] = useState("");
+  const [isLoadingAiGuess, setIsLoadingAiGuess] = useState(false);
 
   // Initialize current image index for each train
   useEffect(() => {
@@ -188,21 +190,70 @@ export default function Home() {
     }
   };
 
+  // Use AI to guess which train this could be
+  const guessTrainWithAI = async (): Promise<void> => {
+    if (!searchTerm.trim()) {
+      alert('Please enter a train name in the search box above');
+      return;
+    }
+
+    try {
+      setIsLoadingAiGuess(true);
+      setAiGuessResult('');
+
+      const response = await fetch('/api/guess-train', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ trainName: searchTerm }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      setAiGuessResult(data.result);
+    } catch (error: unknown) {
+      console.error('Error calling AI guess API:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setAiGuessResult(`Error: ${errorMessage}`);
+    } finally {
+      setIsLoadingAiGuess(false);
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-blue-50 font-sans">
       <main className="container mx-auto px-4 py-8">
         <h1 className="text-4xl font-bold text-center mb-8 text-blue-700">Thomas the Tank Engine Trains</h1>
         
-        {/* Search input */}
+        {/* Search input and AI guess button */}
         <div className="mb-8">
-          <input
-            type="text"
-            placeholder="Search trains by name, number, color..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-4 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-500"
-          />
+          <div className="flex flex-col md:flex-row gap-4">
+            <input
+              type="text"
+              placeholder="Search trains by name, number, color..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="flex-grow p-4 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-500"
+            />
+            <button
+              onClick={guessTrainWithAI}
+              disabled={isLoadingAiGuess}
+              className="bg-blue-600 text-white py-3 px-6 rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {isLoadingAiGuess ? 'Thinking...' : 'Use AI to guess which train this could be'}
+            </button>
+          </div>
+          {aiGuessResult && (
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-bold text-blue-800 mb-2">AI Suggestion:</h3>
+              <p className="text-gray-800">{aiGuessResult}</p>
+            </div>
+          )}
         </div>
         
         {/* Train cards */}
